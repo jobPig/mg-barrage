@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="renderer" content="webkit">
+    <link rel="shortcut icon" href="//gold-cdn.xitu.io/favicons/favicon.ico">
+    <title>自定义弹幕</title>
+    <style>
+      .content-wrapper {
+        margin-top: 20px;
+      }
+      #msg {
+        padding: 6px 12px;
+      }
+      #addBtn {
+        color: #fff;
+        background-color: #337ab7;
+        border-color: #2e6da4;
+        padding: 6px 12px;
+        border-radius: 4px;
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="barrage" width="1280" height="420" style="background-color: rgba(0,0,0,0.2)">您的浏览器不支持 canvas</canvas>
+    <div class="content-wrapper">
+      <input type="text" name="barrage" id="msg" placeholder="请输入弹幕信息">
+      <input type="button" id="addBtn" value="提交" />
+    </div>
+
+    <script>
+      window.onload = function() {
+
+        function Message(id, msg, px, py) {
+          this.id = id
+          this.msg = msg
+          this.px = px
+          this.py = py
+          this.width = 0
+        }
+        Message.prototype.setWidth = function(w) {
+          this.width = w
+        }
+
+        function BarrageQueue(cxt, msgs) {
+          // 弹幕池对象
+          this.pipelines = [30,60,90] // 留言管道，所处高度
+          this.canvasContent = cxt
+          this.pipes = [] // 管道
+          this.init(msgs)
+        }
+        BarrageQueue.prototype.init = function(msgs) {
+          // 初始化三个管道
+          // 数据平均分在三个管道
+          var pipeDatas = []
+          var len = msgs.length || 0
+          var preLen = Math.ceil(len/3)
+          for(var i=0; i < 3; i++) {
+            this.pipes.push(new Pipe(this.canvasContent, this.pipelines[i], msgs.slice(i * preLen, (i + 1) * preLen)))
+          }
+        }
+        BarrageQueue.prototype.clearPipe = function() {
+          this.pipes.forEach((pipe) => pipe.clearDisabledMsg())
+        }
+        BarrageQueue.prototype.isAllEmpty = function() {
+          
+          var isAllEmpty = true
+          this.pipes.forEach((pipe) => {
+            var isEmpty = pipe.isEmpty()
+            if(!isEmpty) {
+              isAllEmpty = false
+            }
+          })
+          return isAllEmpty
+        }
+        BarrageQueue.prototype.clear = function() {
+          this.pipes = []
+        }
+
+        function Pipe(cxt, height, initMsgs) {
+          // 弹幕管道
+          this.height = height // 距离上边距距离
+          this.canvasContent = cxt // canvas 上下文
+          this.cxtWidth = 1280 // canvas 宽度(弹幕可以移动的距离)
+          this.content = [] // 管道内的弹幕信息
+          this.wordSpacing = 60 // 每条弹幕间的距离
+          this.speed = Math.floor(Math.random()*10) // 管道内弹幕运行速度
+          this.init(initMsgs)
+        }
+        Pipe.prototype.init = function(initMsgs) {
+          initMsgs.map((msg) => {
+            this.addBarrage(msg)
+          })
+        }
+        Pipe.prototype.addBarrage = function(msg) {
+          var msgX = 0
+          var mw = this.canvasContent.measureText(msg).width // msg 长度
+          if (this.content && this.content.length === 0) {
+            msgX = this.cxtWidth
+          } else {
+            
+            // 与前一个 msg 进行对比，若前一个 msg 已经展示，则当前 width = 1280
+            var lastPx = this.content[this.content.length - 1].px
+            var lastWidth = this.content[this.content.length - 1].width
+            msgX = lastPx > this.cxtWidth ? lastPx + lastWidth : this.cxtWidth
+            
+          }
+          var c = new Message(this.content.length, msg, msgX + this.wordSpacing, this.height)
+          c.setWidth(mw)
+          this.content.push(c)
+        }
+        Pipe.prototype.deleteBarrage = function(msg) {
+          // 删除弹幕
+          this.content = this.content.filter((barrage) => barrage.id !== msg.id)
+        }
+        Pipe.prototype.isEmpty = function() {
+          return this.content.length <= 0
+        }
+        Pipe.prototype.clearDisabledMsg = function() {
+          this.content = this.content.filter(q => q.px + q.width >= 0)
+        }
+        Pipe.prototype.clear = function() {
+          this.content = []
+        }
+
+
+        function Barrage(msgsArr) {
+          this.barrage = document.getElementById('barrage')
+          this.ctx = this.barrage.getContext('2d')
+          // 样式
+          this.width = this.barrage.width
+          this.height = this.barrage.height
+          this.ctx.font = "16px 黑体"
+          this.frameId = null // 定时器 ID
+
+          this.queue = new BarrageQueue(this.ctx, msgsArr) // 弹幕管道
+        }
+        Barrage.prototype.draw = function(msg, speed) {
+          // 清除超出边界的 msg
+          this.queue.clearPipe()
+          if(this.queue.isAllEmpty()) {
+            this.clear()
+            return
+          }
+          msg.px = msg.px - speed
+          this.ctx.fillText(msg.msg, msg.px, msg.py)
+        }
+        Barrage.prototype.move = function() {
+          if (!this.queue.isAllEmpty()) {
+            this.ctx.clearRect(0, 0, this.width, this.height)
+            this.frameId = requestAnimationFrame(this.move.bind(this))
+            this.queue.pipes.forEach((pipe) => {
+              if(!pipe.isEmpty()) {
+                pipe.content.forEach((q) => this.draw(q, pipe.speed))
+              }
+            })
+          }
+        }
+        Barrage.prototype.addBarrage = function(msg) {
+          // 添加弹幕
+          var pipe = this.queue.pipes[Math.floor(Math.random()*3)]
+          pipe.addBarrage(msg)
+          // 如果 requestAnimationFrame 已经关闭则重启
+          if(!this.frameId) {
+            this.move()
+          }
+        }
+        
+        Barrage.prototype.clear = function() {
+          // 清除 & 释放资源
+          console.log('clear & stop')
+          cancelAnimationFrame(this.frameId)
+          this.frameId = null
+          this.ctx.clearRect(0, 0, this.width, this.height)
+        }
+        
+        var bar = new Barrage(['aa', 'test', '哈哈', '生气生气生气生气生气生气生气生气生气生气', '我最帅', '哈方法方法付哈'])
+        bar.move()
+
+        var addBtn = document.getElementById("addBtn")
+        var msgDom = document.getElementById("msg")
+        addBtn.onclick = function() {
+          bar.addBarrage(msgDom.value)
+        }
+      }
+    </script>
+  </body>
+</html>
